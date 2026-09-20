@@ -1,7 +1,7 @@
 # ovpn3-tui
 
-[![CI](https://github.com/dizba/ovpn3-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/dizba/ovpn3-tui/actions/workflows/ci.yml)
-[![Release](https://github.com/dizba/ovpn3-tui/actions/workflows/release.yml/badge.svg)](https://github.com/dizba/ovpn3-tui/actions/workflows/release.yml)
+[![CI](https://github.com/bardiz12/ovpn3-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/bardiz12/ovpn3-tui/actions/workflows/ci.yml)
+[![Release](https://github.com/bardiz12/ovpn3-tui/actions/workflows/release.yml/badge.svg)](https://github.com/bardiz12/ovpn3-tui/actions/workflows/release.yml)
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -68,7 +68,7 @@ A modern, fast, and responsive Terminal User Interface (TUI) frontend for **Open
 
 ```bash
 # Clone repository
-git clone https://github.com/dizba/ovpn3-tui.git
+git clone https://github.com/bardiz12/ovpn3-tui.git
 cd ovpn3-tui
 
 # Build optimized binary
