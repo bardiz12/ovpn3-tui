@@ -1,0 +1,8 @@
+/target
+*.key
+*.db
+*.db-journal
+*.tar.gz
+*.sha256
+node_modules/
+package-lock.json
