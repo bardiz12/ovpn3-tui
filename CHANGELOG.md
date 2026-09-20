@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/bardiz12/ovpn3-tui/compare/v1.0.0...v1.1.0) (2026-09-20)
+
+
+### Features
+
+* add Nix flake support ([abbb25f](https://github.com/bardiz12/ovpn3-tui/commit/abbb25f385a61fe31090b65677fee126bf17229f))
+
 # 1.0.0 (2026-09-20)
 
 
