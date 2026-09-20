@@ -1,4 +1,6 @@
 /target
+result
+result-*
 *.key
 *.db
 *.db-journal
