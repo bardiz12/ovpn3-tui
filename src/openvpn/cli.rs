@@ -486,6 +486,44 @@ pub async fn disconnect_session(session_path: &str) -> Result<String> {
     Ok(stdout.trim().to_string())
 }
 
+/// Verify that a specific binary is available in PATH and can be invoked.
+pub fn check_binary_exists(bin_name: &str) -> Result<String> {
+    match std::process::Command::new(bin_name).arg("version").output() {
+        Ok(output) => {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let first_line = stdout.lines().next().unwrap_or(bin_name).trim();
+                Ok(first_line.to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!(
+                    "'{}' binary found but exited with error: {}",
+                    bin_name,
+                    stderr.trim()
+                );
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "'{}' CLI binary was not found in your PATH.\n\n\
+                 ovpn3-tui requires the official OpenVPN 3 Linux client ('{}') to operate.\n\
+                 Please ensure OpenVPN 3 Linux is installed and available in your PATH.\n\
+                 See: https://community.openvpn.net/openvpn/wiki/OpenVPN3Linux",
+                bin_name,
+                bin_name
+            );
+        }
+        Err(err) => {
+            bail!("Failed to execute '{}': {}", bin_name, err);
+        }
+    }
+}
+
+/// Check if the `openvpn3` binary is installed and executable.
+pub fn check_openvpn3_binary() -> Result<String> {
+    check_binary_exists("openvpn3")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +664,21 @@ TUN_PACKETS_IN: 20
         let (rx2, tx2) = parse_session_stats_text(text_colon).unwrap();
         assert_eq!(rx2, 3000);
         assert_eq!(tx2, 1500);
+    }
+
+    #[test]
+    fn test_check_binary_exists_missing() {
+        let res = check_binary_exists("nonexistent_binary_xyz_123");
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("was not found in your PATH"));
+    }
+
+    #[test]
+    fn test_check_binary_exists_cargo() {
+        let res = check_binary_exists("cargo");
+        assert!(res.is_ok());
+        let ver = res.unwrap();
+        assert!(ver.to_lowercase().contains("cargo"));
     }
 }

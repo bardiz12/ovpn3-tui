@@ -62,7 +62,8 @@ impl ThroughputMonitor {
         }
     }
 
-    /// Read raw statistics from Linux kernel for the given network interface (e.g. "tun0")
+    /// Read raw statistics from Linux kernel for the given network interface (e.g. "tun0").
+    /// Uses direct sysfs file read without spawning any processes, with fallback to /proc/net/dev.
     pub fn read_interface_bytes(device: &str) -> Option<(u64, u64)> {
         if device.is_empty() {
             return None;
@@ -72,18 +73,20 @@ impl ThroughputMonitor {
         let rx_file = base.join("rx_bytes");
         let tx_file = base.join("tx_bytes");
 
-        let rx = fs::read_to_string(rx_file)
-            .ok()?
-            .trim()
-            .parse::<u64>()
-            .ok()?;
-        let tx = fs::read_to_string(tx_file)
-            .ok()?
-            .trim()
-            .parse::<u64>()
-            .ok()?;
+        if let (Ok(rx_str), Ok(tx_str)) =
+            (fs::read_to_string(&rx_file), fs::read_to_string(&tx_file))
+        {
+            if let (Ok(rx), Ok(tx)) = (rx_str.trim().parse::<u64>(), tx_str.trim().parse::<u64>()) {
+                return Some((rx, tx));
+            }
+        }
 
-        Some((rx, tx))
+        // Fallback to /proc/net/dev
+        if let Ok(proc_content) = fs::read_to_string("/proc/net/dev") {
+            return parse_proc_net_dev(&proc_content, device);
+        }
+
+        None
     }
 
     /// Update with newly observed raw total rx and tx bytes
@@ -155,6 +158,23 @@ pub fn format_rate(bytes_per_sec: u64) -> String {
     format!("{}/s", format_bytes(bytes_per_sec))
 }
 
+pub fn parse_proc_net_dev(content: &str, device: &str) -> Option<(u64, u64)> {
+    let target = device.trim();
+    for line in content.lines() {
+        if let Some((dev_part, stats_part)) = line.split_once(':') {
+            if dev_part.trim() == target {
+                let fields: Vec<&str> = stats_part.split_whitespace().collect();
+                if fields.len() >= 9 {
+                    let rx = fields[0].parse::<u64>().ok()?;
+                    let tx = fields[8].parse::<u64>().ok()?;
+                    return Some((rx, tx));
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +196,14 @@ mod tests {
         monitor.tick_idle();
         assert_eq!(monitor.rx_history.len(), MAX_HISTORY_POINTS);
         assert_eq!(monitor.current_rx_rate, 0);
+    }
+
+    #[test]
+    fn test_parse_proc_net_dev() {
+        let sample = "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n    lo: 1018175718 1722051    0    0    0     0          0         0 1018175718 1722051    0    0    0     0       0          0\n  tun0:   46709     239    0    0    0     0          0         0    53502     443    0    0    0     0       0          0\n";
+        let stats = parse_proc_net_dev(sample, "tun0").unwrap();
+        assert_eq!(stats, (46709, 53502));
+
+        assert!(parse_proc_net_dev(sample, "eth99").is_none());
     }
 }

@@ -14,8 +14,8 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use openvpn::cli::{
-    AuthRequest, SessionInfo, check_pending_auth, disconnect_session, list_sessions,
-    provide_auth_response, query_session_stats, start_session,
+    AuthRequest, SessionInfo, check_openvpn3_binary, check_pending_auth, disconnect_session,
+    list_sessions, provide_auth_response, query_session_stats, start_session,
 };
 use openvpn::stats::ThroughputMonitor;
 use ratatui::Terminal;
@@ -61,9 +61,8 @@ fn print_help(paths: &AppPaths) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. Setup paths, directories, crypto key, and database
+    // 1. Setup paths and check command-line arguments
     let paths = AppPaths::default_paths()?;
-    paths.ensure_dirs()?;
 
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
@@ -75,11 +74,19 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Check if openvpn3 binary is installed and executable
+    if let Err(err) = check_openvpn3_binary() {
+        eprintln!("Error: {err}");
+        std::process::exit(1);
+    }
+
     if !std::io::stdin().is_terminal() {
         eprintln!("Error: ovpn3-tui requires an interactive terminal (TTY) to run.");
         std::process::exit(1);
     }
 
+    // Ensure config directories, crypto key, and database are ready
+    paths.ensure_dirs()?;
     let key = crypto::load_or_generate_key(&paths.key_path)?;
     let conn = db::init_db(&paths.db_path)?;
 
@@ -91,10 +98,10 @@ async fn main() -> Result<()> {
     if let Ok(sessions) = list_sessions().await {
         app.update_sessions(sessions);
         if let Some(session) = app.current_active_session() {
-            if let Some((rx, tx)) = query_session_stats(&session.path).await {
+            // Read directly from kernel interface statistics first (no process spawn)
+            if let Some((rx, tx)) = ThroughputMonitor::read_interface_bytes(&session.device) {
                 app.update_stats_from_bytes(rx, tx);
-            } else if let Some((rx, tx)) = ThroughputMonitor::read_interface_bytes(&session.device)
-            {
+            } else if let Some((rx, tx)) = query_session_stats(&session.path).await {
                 app.update_stats_from_bytes(rx, tx);
             }
         }
@@ -215,19 +222,21 @@ async fn main() -> Result<()> {
 
             // 1-second interval ticker for network throughput calculation, session sync & auth checks
             _ = stats_ticker.tick() => {
-                // Query stats from openvpn3 session-stats CLI (with fallback to interface bytes)
+                // Read stats directly from Linux kernel files (sysfs/procfs) without spawning subprocesses
                 if let Some(session) = app.current_active_session() {
-                    let session_path = session.path.clone();
-                    let device = session.device.clone();
-                    let tx_stats = tx.clone();
+                    if let Some((rx, tx)) = ThroughputMonitor::read_interface_bytes(&session.device) {
+                        app.update_stats_from_bytes(rx, tx);
+                    } else {
+                        // Fallback to openvpn3 CLI in background only if device file is not yet available
+                        let session_path = session.path.clone();
+                        let tx_stats = tx.clone();
 
-                    tokio::spawn(async move {
-                        if let Some((rx, tx)) = query_session_stats(&session_path).await {
-                            let _ = tx_stats.send(AsyncMessage::StatsUpdated(rx, tx));
-                        } else if let Some((rx, tx)) = ThroughputMonitor::read_interface_bytes(&device) {
-                            let _ = tx_stats.send(AsyncMessage::StatsUpdated(rx, tx));
-                        }
-                    });
+                        tokio::spawn(async move {
+                            if let Some((rx, tx)) = query_session_stats(&session_path).await {
+                                let _ = tx_stats.send(AsyncMessage::StatsUpdated(rx, tx));
+                            }
+                        });
+                    }
                 } else {
                     app.throughput.tick_idle();
                 }
